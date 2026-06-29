@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# bin/harmony — single-entry CLI dispatcher for the harmony plugin.
+#
+# Usage:
+#   harmony apply        [--quiet|--verbose] [--dry-run] [--no-wait]
+#   harmony status
+#   harmony verify
+#   harmony diff
+#   harmony init         [--force]
+#   harmony promote      <plugin-id>     (TODO)
+#   harmony demote       <plugin-id>     (TODO)
+#   harmony promote-brew <formula>       (TODO)
+#   harmony help
+#   harmony version
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# Resolve our own directory regardless of how we were invoked.
+HARMONY_BIN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+HARMONY_REPO_ROOT="$( cd "${HARMONY_BIN_DIR}/.." && pwd )"
+HARMONY_LIB_DIR="${HARMONY_REPO_ROOT}/lib"
+
+# shellcheck source=../lib/common.sh
+source "${HARMONY_LIB_DIR}/common.sh"
+
+HARMONY_VERSION="0.1.0-dev"
+
+# ---------- Argument parsing ----------
+# Globals set from CLI flags. Domain libs read these.
+HARMONY_DRY_RUN=0
+HARMONY_NO_WAIT=0
+# HARMONY_QUIET / HARMONY_VERBOSE are inherited from common.sh defaults.
+
+parse_global_flags() {
+    # Strip recognised global flags from the front of $@ and set globals.
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --quiet)    HARMONY_QUIET=1;   shift ;;
+            --verbose)  HARMONY_VERBOSE=1; shift ;;
+            --dry-run)  HARMONY_DRY_RUN=1; shift ;;
+            --no-wait)  HARMONY_NO_WAIT=1; shift ;;
+            *) break ;;
+        esac
+    done
+    HARMONY_REMAINING_ARGS=("$@")
+    export HARMONY_QUIET HARMONY_VERBOSE HARMONY_DRY_RUN HARMONY_NO_WAIT
+}
+
+# ---------- Verb dispatch ----------
+
+cmd_help() {
+    cat <<'EOF'
+harmony — declarative config for Claude Code.
+
+Usage:
+  harmony apply [--dry-run] [--quiet|--verbose] [--no-wait]
+                          Reconcile your machine to the manifest.
+  harmony status          Show what would change (read-only).
+  harmony verify          Run all smoke-test assertions.
+  harmony diff            Detailed JSON diff (manifest vs reality).
+  harmony init [--force]  Create your config directory from a starter template.
+  harmony help            Show this message.
+  harmony version         Print the harmony version.
+
+Env vars:
+  HARMONY_CONFIG_DIR     Path to your config repo (default: ~/code/harmony-config).
+  HARMONY_VERBOSE        Set to 1 to enable debug logging.
+
+See: https://github.com/fmogensen/harmony
+EOF
+}
+
+cmd_version() {
+    printf "harmony %s\n" "$HARMONY_VERSION"
+}
+
+cmd_apply() {
+    harmony_require_cmd jq "brew install jq"
+    harmony_acquire_lock $([[ "$HARMONY_NO_WAIT" == "1" ]] && echo no-wait || echo wait)
+
+    if ! harmony_config_exists; then
+        harmony_warn "no manifest at $(harmony_manifest_path) — run 'harmony init' to create one"
+        return 0
+    fi
+
+    local manifest
+    manifest="$(harmony_manifest_path)"
+    harmony_jq_validate "$manifest" "manifest"
+
+    harmony_source_domains
+
+    harmony_info "applying manifest: $manifest"
+    [[ "$HARMONY_DRY_RUN" == "1" ]] && harmony_info "(dry-run — no changes will be made)"
+
+    local domain plan_lines plan_count=0 change_count=0 error_count=0
+    for domain in "${HARMONY_DOMAINS[@]}"; do
+        # Skip domains whose library isn't loaded.
+        if ! declare -F "harmony_domain_${domain}_plan" >/dev/null 2>&1; then
+            harmony_debug "domain not implemented yet: $domain"
+            continue
+        fi
+
+        harmony_debug "planning domain: $domain"
+        plan_lines="$( "harmony_domain_${domain}_plan" "$manifest" || true )"
+
+        if [[ -z "$plan_lines" ]]; then
+            harmony_debug "domain $domain: in sync"
+            continue
+        fi
+
+        # Count actions for the summary.
+        local d_count
+        d_count="$(printf "%s\n" "$plan_lines" | grep -cv '^noop' || true)"
+        plan_count=$(( plan_count + d_count ))
+
+        if [[ "$HARMONY_VERBOSE" == "1" ]] || [[ "$HARMONY_QUIET" != "1" && "$d_count" -gt 0 ]]; then
+            printf "%s\n" "$plan_lines" | grep -v '^noop' | while IFS=$'\t' read -r action resource details; do
+                harmony_info "[${domain}] ${action} ${resource}${details:+ — ${details}}"
+            done
+        fi
+
+        if [[ "$HARMONY_DRY_RUN" != "1" ]]; then
+            if "harmony_domain_${domain}_apply" "$manifest"; then
+                change_count=$(( change_count + d_count ))
+            else
+                harmony_warn "domain $domain: apply failed (continuing)"
+                error_count=$(( error_count + 1 ))
+            fi
+        fi
+    done
+
+    if [[ "$plan_count" -eq 0 ]]; then
+        [[ "$HARMONY_QUIET" != "1" ]] && harmony_info "all in sync"
+    else
+        if [[ "$HARMONY_DRY_RUN" == "1" ]]; then
+            harmony_info "would apply $plan_count change(s)"
+        else
+            harmony_info "applied $change_count change(s) (errors: $error_count)"
+        fi
+    fi
+    return 0
+}
+
+cmd_status() {
+    HARMONY_DRY_RUN=1
+    HARMONY_QUIET=0
+    cmd_apply
+}
+
+cmd_verify() {
+    harmony_require_cmd jq "brew install jq"
+
+    if ! harmony_config_exists; then
+        harmony_error "no manifest at $(harmony_manifest_path)"
+        return 1
+    fi
+
+    local manifest
+    manifest="$(harmony_manifest_path)"
+    harmony_jq_validate "$manifest" "manifest"
+
+    harmony_source_domains
+
+    local domain ok=0 fail=0
+    for domain in "${HARMONY_DOMAINS[@]}"; do
+        if ! declare -F "harmony_domain_${domain}_verify" >/dev/null 2>&1; then
+            continue
+        fi
+        if "harmony_domain_${domain}_verify" "$manifest"; then
+            printf "PASS  %-12s in sync\n" "$domain"
+            ok=$(( ok + 1 ))
+        else
+            printf "FAIL  %-12s drift detected (run 'harmony status' for details)\n" "$domain"
+            fail=$(( fail + 1 ))
+        fi
+    done
+
+    printf "\n%d passed, %d failed\n" "$ok" "$fail"
+    [[ "$fail" -eq 0 ]]
+}
+
+cmd_diff() {
+    # Detailed diff: just status, but verbose.
+    HARMONY_VERBOSE=1
+    cmd_status
+}
+
+cmd_init() {
+    local force=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force) force=1; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -d "$HARMONY_CONFIG_DIR" && "$force" != "1" ]]; then
+        harmony_die "$HARMONY_CONFIG_DIR already exists (pass --force to overwrite)"
+    fi
+
+    local example="${HARMONY_REPO_ROOT}/examples/single-mac.json"
+    if [[ ! -f "$example" ]]; then
+        harmony_die "starter example not found at $example"
+    fi
+
+    mkdir -p "$HARMONY_CONFIG_DIR"/{content/{skills,agents,commands},settings,hooks,helpers,launchd}
+    cp "$example" "$(harmony_manifest_path)"
+
+    # Symlink ~/.local/bin/harmony so the CLI is on PATH.
+    mkdir -p "${HOME}/.local/bin"
+    if [[ ! -L "${HOME}/.local/bin/harmony" ]]; then
+        ln -sf "${HARMONY_REPO_ROOT}/bin/harmony" "${HOME}/.local/bin/harmony"
+        harmony_info "symlinked ${HOME}/.local/bin/harmony -> ${HARMONY_REPO_ROOT}/bin/harmony"
+        if ! printf "%s" "$PATH" | tr ':' '\n' | grep -qx "${HOME}/.local/bin"; then
+            harmony_warn "${HOME}/.local/bin is not on \$PATH — add it to your shell profile to use 'harmony' from any terminal"
+        fi
+    fi
+
+    harmony_info "created $HARMONY_CONFIG_DIR from $example"
+    harmony_info "edit $(harmony_manifest_path), then run 'harmony apply'"
+}
+
+# ---------- Main ----------
+
+parse_global_flags "$@"
+set -- "${HARMONY_REMAINING_ARGS[@]:-}"
+
+if [[ $# -eq 0 ]]; then
+    cmd_help
+    exit 0
+fi
+
+verb="$1"; shift
+case "$verb" in
+    apply)         cmd_apply "$@" ;;
+    status)        cmd_status "$@" ;;
+    verify)        cmd_verify "$@" ;;
+    diff)          cmd_diff "$@" ;;
+    init)          cmd_init "$@" ;;
+    help|--help|-h) cmd_help ;;
+    version|--version|-v) cmd_version ;;
+    promote|demote|promote-brew)
+        harmony_die "verb '$verb' not yet implemented (planned for v1)"
+        ;;
+    *)
+        harmony_error "unknown verb: $verb"
+        cmd_help
+        exit 1
+        ;;
+esac
