@@ -24,6 +24,11 @@ HARMONY_LIB_DIR="${HARMONY_REPO_ROOT}/lib"
 
 # shellcheck source=../lib/common.sh
 source "${HARMONY_LIB_DIR}/common.sh"
+# v2: git-sync + per-host overrides (both fail-open).
+# shellcheck source=../lib/sync.sh
+source "${HARMONY_LIB_DIR}/sync.sh"
+# shellcheck source=../lib/overrides.sh
+source "${HARMONY_LIB_DIR}/overrides.sh"
 
 HARMONY_VERSION="0.1.0-dev"
 
@@ -60,9 +65,16 @@ Usage:
   harmony status          Show what would change (read-only).
   harmony verify          Run all smoke-test assertions.
   harmony diff            Detailed JSON diff (manifest vs reality).
+  harmony sync [--push]   Git-sync the config repo now (pull ff-only; push if
+                          mode=pull-push, or --push to force the push once).
   harmony init [--force]  Create your config directory from a starter template.
   harmony help            Show this message.
   harmony version         Print the harmony version.
+
+Multi-Mac (v2): with a "sync" block in the manifest, apply does git pull
+--ff-only on the config repo first (warns, never blocks, on divergence) and —
+if mode=pull-push — pushes local commits after. A per-host
+overrides/<hostname>.json is deep-merged over the base manifest.
 
 Env vars:
   HARMONY_CONFIG_DIR     Path to your config repo (default: ~/code/harmony-config).
@@ -100,9 +112,21 @@ cmd_apply() {
         return 0
     fi
 
+    local base_manifest
+    base_manifest="$(harmony_manifest_path)"
+    harmony_jq_validate "$base_manifest" "manifest"
+
+    # v2: sync the config repo before reading it, so we apply the latest.
+    # (Reads sync config from the on-disk manifest; pull is ff-only + warn.)
+    harmony_sync_load "$base_manifest"
+    [[ "$HARMONY_DRY_RUN" == "1" ]] || harmony_sync_pull
+    # Re-validate in case the pull updated the manifest.
+    harmony_jq_validate "$base_manifest" "manifest"
+
+    # v2: layer this host's overrides over the base → effective manifest.
     local manifest
-    manifest="$(harmony_manifest_path)"
-    harmony_jq_validate "$manifest" "manifest"
+    manifest="$(harmony_effective_manifest "$base_manifest")"
+    harmony_on_exit 'harmony_overrides_cleanup'
 
     harmony_source_domains
 
@@ -155,6 +179,9 @@ cmd_apply() {
             harmony_info "applied $change_count change(s) (errors: $error_count)"
         fi
     fi
+
+    # v2: push local config commits if sync mode is pull-push (opt-in, non-fatal).
+    [[ "$HARMONY_DRY_RUN" == "1" ]] || harmony_sync_push
     return 0
 }
 
@@ -200,6 +227,39 @@ cmd_diff() {
     # Detailed diff: just status, but verbose.
     HARMONY_VERBOSE=1
     cmd_status
+}
+
+cmd_sync() {
+    # On-demand git-sync of the config repo, independent of apply.
+    #   harmony sync         pull (and push if mode=pull-push)
+    #   harmony sync --push  force the push leg too (one-off, regardless of mode)
+    local force_push=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --push) force_push=1; shift ;;
+            *) harmony_error "unknown flag for sync: $1"; exit 1 ;;
+        esac
+    done
+
+    harmony_require_cmd jq "brew install jq"
+    if ! harmony_config_exists; then
+        harmony_die "no manifest at $(harmony_manifest_path)"
+    fi
+    local manifest
+    manifest="$(harmony_manifest_path)"
+    harmony_sync_load "$manifest"
+
+    if [[ "$HARMONY_SYNC_ENABLED" != "true" ]]; then
+        harmony_warn "sync is disabled in the manifest (set .sync.enabled = true to enable)"
+        return 0
+    fi
+
+    harmony_sync_pull
+    if [[ "$force_push" == "1" ]]; then
+        HARMONY_SYNC_MODE="pull-push"
+    fi
+    harmony_sync_push
+    return 0
 }
 
 cmd_init() {
@@ -253,6 +313,7 @@ case "$verb" in
     status)        cmd_status "$@" ;;
     verify)        cmd_verify "$@" ;;
     diff)          cmd_diff "$@" ;;
+    sync)          cmd_sync "$@" ;;
     init)          cmd_init "$@" ;;
     help|--help|-h) cmd_help ;;
     version|--version|-v) cmd_version ;;

@@ -51,7 +51,34 @@ Honest scope (set expectations before you adopt):
 - **Doesn't store or manage secrets.** harmony refuses to write API keys / tokens into your manifest (sanitiser detects common patterns and aborts). Real secrets live in shell env vars, referenced from manifest entries.
 - **Doesn't sync your Claude Code memory, knowledge-base content, or anything in `~/Documents/`.** Memory has different lifecycle from config — out of scope.
 - **Doesn't replace `brew` itself.** It reconciles your Brewfile (which `brew bundle` already understands).
-- **Multi-Mac git sync** is v2. Today, you can keep your `harmony-config` repo in git and clone it per-machine — but harmony doesn't manage that git layer for you yet.
+- **Multi-Mac git sync** (v2, now shipped). Add a `sync` block to your manifest and harmony keeps the `harmony-config` repo in step across machines: `git pull --ff-only` before each apply (warns, never blocks, if the local repo has diverged or uncommitted changes), and — if `mode: "pull-push"` — pushes your local config commits after. A per-host `overrides/<hostname>.json` is deep-merged over the base manifest so one Mac can differ without forking. See **Multi-Mac sync** below.
+
+## Multi-Mac sync (v2)
+
+Keep all your Macs in step from one git-backed `harmony-config` repo. Add to your manifest:
+
+```json
+"sync": {
+  "enabled": true,
+  "mode": "pull",          // "pull" (default, safe) or "pull-push"
+  "remote": "origin",
+  "branch": ""              // "" = current branch
+}
+```
+
+- **`pull`** — before every apply, harmony runs `git pull --ff-only`. If the repo
+  has diverged or has uncommitted changes, it **warns and skips** the pull, then
+  applies your current local state. It never blocks a session.
+- **`pull-push`** — additionally pushes local commits (commits ahead of upstream)
+  after a successful apply. Opt-in, because auto-push is higher-risk. A failed push
+  warns, never aborts.
+- **On demand:** `harmony sync` (pull, +push if `pull-push`) or `harmony sync --push`
+  (force the push once).
+
+**Per-host overrides.** Drop `overrides/<hostname>.json` in your config repo to make
+one machine differ. It's deep-merged over the base `harmony.json` (objects merge
+recursively; scalars and arrays are replaced). Example — give just the iMac an extra
+launchd agent, or flip one setting on the laptop — without forking the manifest.
 
 ## Architecture
 
@@ -94,7 +121,7 @@ The engine plugin updates via the marketplace (`claude plugin update harmony`). 
 | Declarative (state-sync)               |    ✓    |             —              |       ✓        |        ✓         |
 | Reversible (uninstalls propagate)      |    ✓    |             —              |    partial     |        ✓         |
 | One-command install + smoke test       |    ✓    |             —              |    partial     |     partial      |
-| Cross-machine git sync                 |   v2    |             —              |       ✓        |        ✓         |
+| Cross-machine git sync                 |    ✓    |             —              |       ✓        |        ✓         |
 | macOS only                             |    ✓    |             —              |       —        |        ✓         |
 | Zero new runtimes (just bash + jq)     |    ✓    |             ✓              |    partial     |        —         |
 
@@ -173,8 +200,8 @@ Slash commands inside Claude Code: `/harmony-apply`, `/harmony-status`, `/harmon
 
 ## Roadmap
 
-- **v1** (current): solo single-Mac declarative manager. Stable on Frank's daily-driver Mac.
-- **v2**: multi-Mac git-sync layer, per-host overrides (`overrides/<hostname>.json`), conflict handling, integration tests against real plugin marketplaces.
+- **v1**: solo single-Mac declarative manager. Stable.
+- **v2** (current): multi-Mac git-sync layer (pull-ff-only + warn, opt-in push), per-host overrides (`overrides/<hostname>.json`). See **Multi-Mac sync** above. *(Still open: richer conflict handling beyond ff-only/warn, and integration tests against real plugin marketplaces.)*
 - **v3** *(maybe)*: generic dependency managers beyond brew (npm/pip/cargo), best-practices linter ("you don't have `statusLine` configured — recommended setting:"), GUI for editing the manifest.
 
 ## Requirements
