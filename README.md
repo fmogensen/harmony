@@ -62,9 +62,22 @@ Keep all your Macs in step from one git-backed `harmony-config` repo. Add to you
   "enabled": true,
   "mode": "pull",          // "pull" (default, safe) or "pull-push"
   "remote": "origin",
-  "branch": ""              // "" = current branch
+  "branch": "",             // "" = current branch
+  "autoCommit": false       // pull-push: commit local edits before pushing
 }
 ```
+
+**Sync states.** harmony classifies the config repo before acting and reports it
+in `verify` (a `sync` row) and `status`: `in sync` · `behind` (apply pulls) ·
+`ahead` (local commits not pushed) · `diverged` (resolve manually) · `dirty`
+(uncommitted — won't pull) · `no upstream` · `offline` (can't reach the remote —
+distinct from diverged). Only `behind` triggers an actual fast-forward; every
+other state is reported and left alone.
+
+**autoCommit.** With `mode: "pull-push"` and `autoCommit: true`, harmony commits
+your uncommitted config edits (message: `harmony: auto-commit config from <host>`)
+before pushing — so "edit the manifest, next apply propagates it" works without
+manual `git commit`.
 
 - **`pull`** — before every apply, harmony runs `git pull --ff-only`. If the repo
   has diverged or has uncommitted changes, it **warns and skips** the pull, then

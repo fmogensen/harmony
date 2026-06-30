@@ -119,7 +119,12 @@ cmd_apply() {
     # v2: sync the config repo before reading it, so we apply the latest.
     # (Reads sync config from the on-disk manifest; pull is ff-only + warn.)
     harmony_sync_load "$base_manifest"
-    [[ "$HARMONY_DRY_RUN" == "1" ]] || harmony_sync_pull
+    if [[ "$HARMONY_DRY_RUN" == "1" ]]; then
+        # status: report sync state instead of mutating anything.
+        [[ "$HARMONY_SYNC_ENABLED" == "true" ]] && harmony_info "$(harmony_sync_report)"
+    else
+        harmony_sync_pull
+    fi
     # Re-validate in case the pull updated the manifest.
     harmony_jq_validate "$base_manifest" "manifest"
 
@@ -218,6 +223,19 @@ cmd_verify() {
             fail=$(( fail + 1 ))
         fi
     done
+
+    # v2.1: report git-sync health as its own row (only when sync is enabled).
+    harmony_sync_load "$manifest"
+    if [[ "$HARMONY_SYNC_ENABLED" == "true" ]]; then
+        local sync_msg
+        if sync_msg="$(harmony_sync_report)"; then
+            printf "PASS  %-12s %s\n" "sync" "${sync_msg#sync: }"
+            ok=$(( ok + 1 ))
+        else
+            printf "WARN  %-12s %s\n" "sync" "${sync_msg#sync: }"
+            # sync attention is a WARN, not a hard FAIL — it never blocks.
+        fi
+    fi
 
     printf "\n%d passed, %d failed\n" "$ok" "$fail"
     [[ "$fail" -eq 0 ]]

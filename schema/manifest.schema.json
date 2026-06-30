@@ -222,6 +222,10 @@
         "branch": {
           "type": "string",
           "description": "Branch to sync. Empty = current branch."
+        },
+        "autoCommit": {
+          "type": "boolean",
+          "description": "When mode=pull-push, auto-commit uncommitted config changes (with a hostname+timestamp message) before pushing. Default false."
         }
       },
       "additionalProperties": false
