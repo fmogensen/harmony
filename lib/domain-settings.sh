@@ -59,9 +59,10 @@ _settings_compute_desired() {
             | from_entries;
 
         # Build enabledPlugins from manifest.plugins[].
+        # Note: cannot use `.enabled // true` because `false // true` = true (jq gotcha).
         def to_enabled_plugins(plugins):
             plugins
-            | map({ key: .id, value: (.enabled // true) })
+            | map({ key: .id, value: (if has("enabled") then .enabled else true end) })
             | from_entries;
 
         # Build extraKnownMarketplaces from manifest.marketplaces[].

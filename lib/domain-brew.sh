@@ -186,8 +186,9 @@ harmony_domain_brew_verify() {
         return 0
     fi
 
-    # All safe-tier formulae must be present. ask-tier missing is not a verify failure
-    # (user opted into manual install). unknown-tier counts as safe (default).
+    # All safe-tier formulae must be present. Use `brew list` not `command -v`
+    # because the formula name often differs from the binary name
+    # (ripgrep→rg, ghostscript→gs, poppler→pdftotext, etc).
     local formula tier fail=0
     while IFS= read -r formula; do
         [[ -z "$formula" ]] && continue

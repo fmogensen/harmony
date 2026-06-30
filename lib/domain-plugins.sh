@@ -164,6 +164,8 @@ _plugins_compute_diff() {
 }
 
 # Wrapper that fetches live state from `claude` and computes the diff.
+# Filters current plugin list to scope=="user" — harmony does not manage
+# project-scoped plugins (those are owned per-project, not globally).
 _plugins_diff_live() {
     local manifest="$1"
     local markets plugins
@@ -173,6 +175,8 @@ _plugins_diff_live() {
     if ! plugins="$(_plugins_claude plugin list --json)"; then
         plugins="[]"
     fi
+    # Keep only user-scoped plugins.
+    plugins="$(printf "%s" "$plugins" | jq -c '[ .[] | select(.scope == "user") ]')"
     _plugins_compute_diff "$manifest" "$markets" "$plugins"
 }
 
