@@ -1,33 +1,11 @@
 # harmony
 
-**Declarative config for Claude Code.**
+**Declarative config for Claude Code.** One manifest, full lifecycle (install *and* uninstall), reconciled on every session start. Like `home-manager`, but built for Claude Code.
 
-`harmony` is a Claude Code plugin that turns your `~/.claude/` setup into a single declarative manifest. You describe what you want; `harmony` makes it so — installs and **uninstalls** plugins, marketplaces, hooks, MCP servers, brew dependencies, and macOS LaunchAgents. No more drift. No more "what did I change?". No more skills that break silently because a brew dep is missing on this Mac.
-
-> Status: **early development**. v1 (solo single-Mac use) is being built. Multi-Mac sync is v2.
-
-## What you get
-
-- **A single source of truth** for your Claude Code config — one JSON file.
-- **Reversible plugin lifecycle** — remove a plugin from the manifest, run `harmony apply`, and it's actually uninstalled. The Claude Code CLI gives you install/uninstall; `harmony` gives you declarative propagation.
-- **Brewfile + dependency reconciliation** — declare what your skills need, `harmony` installs missing tools (safe-tier auto-installs, ask-tier prompts).
-- **Declarative LaunchAgents** — your local cron jobs live in the manifest. Add one, it's installed. Remove one, it's uninstalled. Orphan plists are pruned.
-- **`harmony verify`** — a smoke test for your environment. Green means your machine matches your config.
-- **Hand-edit escape hatch** — only manifest-owned settings.json keys are overwritten; anything you edit by hand is preserved.
-
-## What `harmony` does NOT do
-
-Honest scope:
-- Doesn't sync your shell dotfiles (use `chezmoi`/`yadm`/Nix for that).
-- Doesn't manage OS preferences, TCC permissions, Keychain, or Mail.app accounts.
-- Doesn't store or manage secrets.
-- Doesn't sync your Claude Code memory or knowledge-base content.
-- Doesn't replace `brew` itself — it reconciles your Brewfile.
-
-## Quick start
+> Status: **v1 in alpha** — works end-to-end on macOS. Built and dogfooded by one user; not yet announced. Star the repo if the idea resonates and you want updates.
 
 ```sh
-# 1. Install the plugin
+# 1. Install
 claude plugin marketplace add fmogensen/harmony-marketplace
 claude plugin install harmony@harmony-marketplace
 
@@ -36,44 +14,184 @@ claude plugin install harmony@harmony-marketplace
 # 3. Create your config directory from a starter template
 harmony init
 
-# 4. Edit ~/code/harmony-config/harmony.json to taste
-
-# 5. Apply + verify
-harmony apply
-harmony verify
+# 4. Edit ~/code/harmony-config/harmony.json to taste, then:
+harmony apply       # reconcile your Mac to the manifest
+harmony verify      # 7/7 green = your Mac matches your config
 ```
+
+That's the whole loop.
+
+## Why you might want this
+
+You've probably noticed:
+- `~/.claude/settings.json` becomes a mystery file. What did you change? When? Why?
+- `claude plugin install/uninstall` works, but there's no "remove this everywhere" — you have to remember every machine you installed something on.
+- Your skills shell out to `jq`, `rg`, `ffmpeg`, `pdftotext`, … and break silently on a new Mac because a brew dep is missing.
+- macOS LaunchAgents pile up. Plists you forgot you installed years ago still run on Sundays.
+- Setting up Claude Code on a new machine is undocumented ritual.
+
+`harmony` makes all of that declarative. You write a manifest; harmony reconciles the Mac to it. Add a plugin → next `harmony apply` installs it. Remove the line → next `harmony apply` uninstalls it. Same for marketplaces, hooks, MCP servers, brew deps, LaunchAgents, keybindings.
+
+## What you get
+
+- **Single source of truth.** One `harmony.json` describes what your machine should look like.
+- **Real uninstall propagation.** Remove a plugin from the manifest → it's actually uninstalled. The Claude Code CLI gives you install/uninstall; harmony gives you state-sync.
+- **Brewfile reconciliation with tier policy.** `safe` tier auto-installs silently; `ask` tier nudges you. Never auto-uninstalls (brew formulas have side-effects — that's a footgun we explicitly opted out of).
+- **Declarative LaunchAgents with prune.** Add a launchd entry to the manifest → installed. Remove it → uninstalled. Orphan plists from old setups get pruned automatically, scoped to a configurable label prefix so Apple/Homebrew agents stay untouched.
+- **Hand-edit escape hatch.** Only keys you declare in the manifest are owned by harmony. Anything else in your `~/.claude/settings.json` is preserved. Want a one-off setting for this Mac only? Just edit settings.json — harmony won't fight you.
+- **`harmony verify`** — 7-domain smoke test. Green means your Mac matches your manifest. Use it on a fresh laptop to confirm setup is complete.
+- **Self-protection.** harmony refuses to uninstall itself even if you forget to list it in your manifest.
+
+## What harmony does NOT do
+
+Honest scope (set expectations before you adopt):
+
+- **Doesn't sync your shell dotfiles.** Use `chezmoi`, `yadm`, or Nix `home-manager` for `.zshrc`, `.gitconfig`, etc.
+- **Doesn't manage OS preferences, TCC permissions, Keychain, or Mail.app accounts.** Those are per-machine grants you do manually once.
+- **Doesn't store or manage secrets.** harmony refuses to write API keys / tokens into your manifest (sanitiser detects common patterns and aborts). Real secrets live in shell env vars, referenced from manifest entries.
+- **Doesn't sync your Claude Code memory, knowledge-base content, or anything in `~/Documents/`.** Memory has different lifecycle from config — out of scope.
+- **Doesn't replace `brew` itself.** It reconciles your Brewfile (which `brew bundle` already understands).
+- **Multi-Mac git sync** is v2. Today, you can keep your `harmony-config` repo in git and clone it per-machine — but harmony doesn't manage that git layer for you yet.
 
 ## Architecture
 
-- **The plugin (this repo)** is the *engine* — reconciler, schema, CLI, slash commands. Generic. Ships with no user-specific content.
-- **Your config repo (`~/code/harmony-config/`)** is your *data* — your manifest, your skills, your hooks, your Brewfile, your overrides. Private to you.
+```
+            ┌─────────────────────────────┐
+            │  fmogensen/harmony          │  ← this repo (OSS, MIT)
+            │  the engine plugin          │     installed via marketplace
+            │  bin/, lib/, hooks.json,    │     ships zero user content
+            │  schema, slash commands     │
+            └─────────────┬───────────────┘
+                          │ reads
+                          ▼
+            ┌─────────────────────────────┐
+            │  ~/code/your-config/        │  ← you maintain this
+            │  your data repo (private)   │     plain folder or git
+            │  harmony.json + skills/     │     keep it in your own git
+            │  agents/, hooks/, Brewfile  │     repo for backup/sync
+            └─────────────┬───────────────┘
+                          │ apply
+                          ▼
+            ┌─────────────────────────────┐
+            │  ~/.claude/                 │  ← your live config
+            │  settings.json, symlinks,   │     fully reconciled
+            │  ~/Library/LaunchAgents,    │     to the manifest
+            │  installed plugins, …       │
+            └─────────────────────────────┘
+```
 
-Clean separation: the plugin updates via the marketplace; your config evolves in your own git repo.
+The engine plugin updates via the marketplace (`claude plugin update harmony`). Your data evolves in your own repo at whatever cadence you want.
 
 ## Comparison
 
-| | harmony | hand-editing settings.json | chezmoi / yadm | Nix home-manager |
-|---|---|---|---|---|
-| Knows Claude Code's settings.json shape | ✓ | — | — | — |
-| Manages plugins + marketplaces | ✓ | partial | — | — |
-| Manages MCP servers | ✓ | — | — | — |
-| Brewfile reconciliation | ✓ | — | partial | ✓ |
-| LaunchAgent management | ✓ | — | partial | partial |
-| Declarative (state-sync) | ✓ | — | ✓ | ✓ |
-| Reversible (uninstalls propagate) | ✓ | — | partial | ✓ |
-| Cross-machine git sync | v2 | — | ✓ | ✓ |
-| macOS only | ✓ | — | — | ✓ |
+|                                        | harmony | hand-editing settings.json | chezmoi / yadm | Nix home-manager |
+|----------------------------------------|:-------:|:--------------------------:|:--------------:|:----------------:|
+| Knows Claude Code's settings.json shape|    ✓    |             —              |       —        |        —         |
+| Manages plugins + marketplaces         |    ✓    |          partial           |       —        |        —         |
+| Manages MCP servers                    |    ✓    |             —              |       —        |        —         |
+| Brewfile reconciliation                |    ✓    |             —              |    partial     |        ✓         |
+| LaunchAgent management                 |    ✓    |             —              |    partial     |     partial      |
+| Declarative (state-sync)               |    ✓    |             —              |       ✓        |        ✓         |
+| Reversible (uninstalls propagate)      |    ✓    |             —              |    partial     |        ✓         |
+| One-command install + smoke test       |    ✓    |             —              |    partial     |     partial      |
+| Cross-machine git sync                 |   v2    |             —              |       ✓        |        ✓         |
+| macOS only                             |    ✓    |             —              |       —        |        ✓         |
+| Zero new runtimes (just bash + jq)     |    ✓    |             ✓              |    partial     |        —         |
+
+## Domains harmony manages
+
+| Domain         | What                                                  | Asymmetric?                  |
+|----------------|-------------------------------------------------------|------------------------------|
+| `content`      | Symlinks `~/.claude/{skills,agents,commands}`         | —                            |
+| `settings`     | Owned keys in `~/.claude/settings.json`               | unmanaged keys preserved     |
+| `plugins`      | `claude plugin {install,uninstall,enable,disable}`    | never uninstalls harmony itself; ignores local-scope plugins |
+| `mcp`          | `~/.claude.json` `mcpServers`                         | refuses to write secret-looking values |
+| `brew`         | Brewfile reconciliation with safe/ask tiers           | additive only — never auto-uninstalls |
+| `launchd`      | `~/Library/LaunchAgents/<prefix>.*`                   | scoped to your label prefix only |
+| `keybindings`  | `~/.claude/keybindings.json`                          | null in manifest = leave alone |
+
+## Manifest snippet
+
+```json
+{
+  "_schema_version": 1,
+
+  "marketplaces": [
+    { "name": "official", "source": "anthropics/claude-plugins-official" }
+  ],
+
+  "plugins": [
+    { "id": "frontend-design@official", "enabled": true }
+  ],
+
+  "content": {
+    "skills":   "content/skills",
+    "agents":   "content/agents",
+    "commands": "content/commands"
+  },
+
+  "settings": {
+    "values": {
+      "permissions": { "defaultMode": "default" },
+      "statusLine":  { "type": "command", "command": "${HARMONY_CONFIG_DIR}/helpers/statusline.sh" }
+    },
+    "derived": ["hooks", "enabledPlugins", "extraKnownMarketplaces"]
+  },
+
+  "hooks": {
+    "SessionStart": [
+      { "command": "${HARMONY_CONFIG_DIR}/hooks/my-session-start.sh" }
+    ]
+  },
+
+  "brew": {
+    "brewfile": "settings/Brewfile",
+    "auto_install_tier": "safe",
+    "tiers": { "safe": ["jq","gh","ripgrep"], "ask": ["reminders-cli"] }
+  },
+
+  "launchd": [
+    { "label": "com.you.nightly", "plist": "launchd/nightly.plist.template" }
+  ]
+}
+```
+
+Full schema: [`schema/manifest.schema.json`](schema/manifest.schema.json). More examples in [`examples/`](examples/).
+
+## CLI
+
+| Command                  | What                                                       |
+|--------------------------|------------------------------------------------------------|
+| `harmony apply`          | Reconcile to manifest                                      |
+| `harmony apply --dry-run`| Show what would change without doing it                    |
+| `harmony status`         | Drift summary (read-only)                                  |
+| `harmony verify`         | 7-domain smoke test; exit 0 green, 1 red                   |
+| `harmony init`           | Create `~/code/harmony-config/` from a starter template    |
+| `harmony help`           | Show help                                                  |
+
+Slash commands inside Claude Code: `/harmony-apply`, `/harmony-status`, `/harmony-verify`.
 
 ## Roadmap
 
-- **v1** (in progress): solo single-Mac declarative manager.
-- **v2**: multi-Mac git-sync layer, per-host overrides (`overrides/<hostname>.json`), conflict handling.
-- **v3** (maybe): generic dependency managers beyond brew (npm/pip/cargo).
+- **v1** (current): solo single-Mac declarative manager. Stable on Frank's daily-driver Mac.
+- **v2**: multi-Mac git-sync layer, per-host overrides (`overrides/<hostname>.json`), conflict handling, integration tests against real plugin marketplaces.
+- **v3** *(maybe)*: generic dependency managers beyond brew (npm/pip/cargo), best-practices linter ("you don't have `statusLine` configured — recommended setting:"), GUI for editing the manifest.
+
+## Requirements
+
+- macOS (tested on Apple Silicon; should work on Intel).
+- `bash` ≥ 3.2 (macOS default).
+- `jq` (will be auto-installed via the brew domain on first apply if listed in your Brewfile).
+- `claude` CLI (Claude Code).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE).
 
 ## Contributing
 
-Early days; not yet open to external contributions. Watch the repo for the v1 release announcement.
+Pre-1.0 — APIs and schemas may change. Open an issue before sending a PR so we can sanity-check direction. Tests live in [`test/`](test/); run with `test/run-all.sh`.
+
+---
+
+Built because the alternative was hand-editing settings.json every time a new Mac joined the household.
