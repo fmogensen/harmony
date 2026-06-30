@@ -188,6 +188,27 @@ harmony_backup_file() {
     return 0
 }
 
+# ---------- EXIT cleanup registry ----------
+# Multiple subsystems (lock, overrides) need to clean up on EXIT. A single
+# trap would let the last `trap ... EXIT` clobber earlier ones, so we register
+# commands into a list and run them all from one handler.
+
+HARMONY_CLEANUP_CMDS=()
+
+harmony_on_exit() {
+    # harmony_on_exit '<command string>' — run on EXIT, in registration order.
+    HARMONY_CLEANUP_CMDS+=("$1")
+    # (Re)install the single aggregate trap.
+    trap 'harmony_run_cleanups' EXIT
+}
+
+harmony_run_cleanups() {
+    local c
+    for c in "${HARMONY_CLEANUP_CMDS[@]:-}"; do
+        [[ -n "$c" ]] && eval "$c" 2>/dev/null || true
+    done
+}
+
 # ---------- Locking ----------
 
 # Try to acquire the global harmony lock. Exits with code 75 (EX_TEMPFAIL)
@@ -199,9 +220,8 @@ harmony_acquire_lock() {
     # if both proceed, the worst case is duplicated no-op writes.
     local lockdir="${HARMONY_LOCK_FILE}.d"
     if mkdir "$lockdir" 2>/dev/null; then
-        # We own it. Set up cleanup.
-        # shellcheck disable=SC2064
-        trap "rmdir '$lockdir' 2>/dev/null || true" EXIT
+        # We own it. Register cleanup (aggregate trap; won't clobber others).
+        harmony_on_exit "rmdir '$lockdir' 2>/dev/null || true"
         return 0
     fi
     if [[ "$wait_mode" == "no-wait" ]]; then
@@ -213,8 +233,7 @@ harmony_acquire_lock() {
     for i in $(seq 1 30); do
         sleep 1
         if mkdir "$lockdir" 2>/dev/null; then
-            # shellcheck disable=SC2064
-            trap "rmdir '$lockdir' 2>/dev/null || true" EXIT
+            harmony_on_exit "rmdir '$lockdir' 2>/dev/null || true"
             return 0
         fi
     done

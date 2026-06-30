@@ -5,16 +5,25 @@
   "description": "Declarative manifest for a Claude Code config, applied by the harmony plugin.",
   "type": "object",
   "properties": {
-    "_schema_version": { "type": "integer", "const": 1 },
-    "_comment": { "type": "string" },
-
+    "_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "_comment": {
+      "type": "string"
+    },
     "marketplaces": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "source"],
+        "required": [
+          "name",
+          "source"
+        ],
         "properties": {
-          "name": { "type": "string" },
+          "name": {
+            "type": "string"
+          },
           "source": {
             "description": "Marketplace source: owner/repo (GitHub), URL, or local path",
             "type": "string"
@@ -22,33 +31,55 @@
         }
       }
     },
-
     "plugins": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "properties": {
           "id": {
             "description": "Fully qualified plugin id: name@marketplace",
             "type": "string",
             "pattern": "^[^@]+@[^@]+$"
           },
-          "enabled": { "type": "boolean", "default": true }
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          }
         }
       }
     },
-
     "content": {
       "type": "object",
       "properties": {
-        "skills":         { "type": ["string", "null"] },
-        "agents":         { "type": ["string", "null"] },
-        "commands":       { "type": ["string", "null"] },
-        "globalClaudeMd": { "type": ["string", "null"] }
+        "skills": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agents": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commands": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "globalClaudeMd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
-
     "settings": {
       "type": "object",
       "properties": {
@@ -60,12 +91,15 @@
           "description": "Settings keys that harmony computes from other manifest sections.",
           "type": "array",
           "items": {
-            "enum": ["hooks", "enabledPlugins", "extraKnownMarketplaces"]
+            "enum": [
+              "hooks",
+              "enabledPlugins",
+              "extraKnownMarketplaces"
+            ]
           }
         }
       }
     },
-
     "hooks": {
       "type": "object",
       "patternProperties": {
@@ -73,52 +107,124 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["command"],
+            "required": [
+              "command"
+            ],
             "properties": {
-              "command": { "type": "string" }
+              "command": {
+                "type": "string"
+              }
             }
           }
         }
       }
     },
-
-    "keybindings": { "type": ["object", "null"] },
-
+    "keybindings": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "mcpServers": {
       "type": "object",
       "properties": {
-        "_scope": { "enum": ["global"], "default": "global" },
-        "servers": { "type": "object" }
+        "_scope": {
+          "enum": [
+            "global"
+          ],
+          "default": "global"
+        },
+        "servers": {
+          "type": "object"
+        }
       }
     },
-
     "brew": {
       "type": "object",
       "properties": {
-        "brewfile":           { "type": "string" },
-        "auto_install_tier":  { "enum": ["safe", "ask", "none"], "default": "safe" },
+        "brewfile": {
+          "type": "string"
+        },
+        "auto_install_tier": {
+          "enum": [
+            "safe",
+            "ask",
+            "none"
+          ],
+          "default": "safe"
+        },
         "tiers": {
           "type": "object",
           "properties": {
-            "safe": { "type": "array", "items": { "type": "string" } },
-            "ask":  { "type": "array", "items": { "type": "string" } }
+            "safe": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ask": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
       }
     },
-
     "launchd": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["label", "plist"],
+        "required": [
+          "label",
+          "plist"
+        ],
         "properties": {
-          "label":  { "type": "string", "description": "Must match the user's HARMONY_LABEL_PREFIX." },
-          "plist":  { "type": "string", "description": "Path to plist template, relative to HARMONY_CONFIG_DIR." },
-          "runner": { "type": "string", "description": "Optional runner script template." },
-          "vars":   { "type": "object" }
+          "label": {
+            "type": "string",
+            "description": "Must match the user's HARMONY_LABEL_PREFIX."
+          },
+          "plist": {
+            "type": "string",
+            "description": "Path to plist template, relative to HARMONY_CONFIG_DIR."
+          },
+          "runner": {
+            "type": "string",
+            "description": "Optional runner script template."
+          },
+          "vars": {
+            "type": "object"
+          }
         }
       }
+    },
+    "sync": {
+      "type": "object",
+      "description": "v2 multi-Mac git-sync of the config repo. Optional; off unless enabled.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch. Default false."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "pull",
+            "pull-push"
+          ],
+          "description": "pull = ff-only pull before apply (warn on divergence). pull-push = also push local commits after apply (opt-in)."
+        },
+        "remote": {
+          "type": "string",
+          "description": "Git remote name. Default origin."
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch to sync. Empty = current branch."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

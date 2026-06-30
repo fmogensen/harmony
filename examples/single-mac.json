@@ -1,44 +1,52 @@
 {
   "_schema_version": 1,
   "_comment": "Starter manifest for a single-Mac user. Copy to ~/code/harmony-config/harmony.json (or wherever you set HARMONY_CONFIG_DIR) and edit to taste. The plugin's SessionStart hook auto-applies on every Claude Code session start.",
-
   "marketplaces": [
-    { "name": "claude-plugins-official", "source": "anthropics/claude-plugins-official" }
+    {
+      "name": "claude-plugins-official",
+      "source": "anthropics/claude-plugins-official"
+    }
   ],
-
   "plugins": [],
-
   "content": {
-    "skills":         "content/skills",
-    "agents":         "content/agents",
-    "commands":       "content/commands",
+    "skills": "content/skills",
+    "agents": "content/agents",
+    "commands": "content/commands",
     "globalClaudeMd": null
   },
-
   "settings": {
     "values": {
-      "permissions": { "defaultMode": "default" }
+      "permissions": {
+        "defaultMode": "default"
+      }
     },
-    "derived": ["hooks", "enabledPlugins", "extraKnownMarketplaces"]
+    "derived": [
+      "hooks",
+      "enabledPlugins",
+      "extraKnownMarketplaces"
+    ]
   },
-
   "hooks": {},
-
   "keybindings": null,
-
   "mcpServers": {
     "_scope": "global",
     "servers": {}
   },
-
   "brew": {
     "brewfile": "settings/Brewfile",
     "auto_install_tier": "safe",
     "tiers": {
-      "safe": ["jq"],
-      "ask":  []
+      "safe": [
+        "jq"
+      ],
+      "ask": []
     }
   },
-
-  "launchd": []
+  "launchd": [],
+  "sync": {
+    "enabled": false,
+    "mode": "pull",
+    "remote": "origin",
+    "branch": ""
+  }
 }
