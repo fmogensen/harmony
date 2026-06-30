@@ -77,6 +77,21 @@ cmd_version() {
 }
 
 cmd_apply() {
+    # Also parse post-verb flags (--dry-run/--quiet/--verbose/--no-wait can
+    # appear before OR after the verb).
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --quiet)    HARMONY_QUIET=1;   shift ;;
+            --verbose)  HARMONY_VERBOSE=1; shift ;;
+            --dry-run)  HARMONY_DRY_RUN=1; shift ;;
+            --no-wait)  HARMONY_NO_WAIT=1; shift ;;
+            *)
+                harmony_error "unknown flag for apply: $1"
+                exit 1
+                ;;
+        esac
+    done
+
     harmony_require_cmd jq "brew install jq"
     harmony_acquire_lock $([[ "$HARMONY_NO_WAIT" == "1" ]] && echo no-wait || echo wait)
 
