@@ -1,0 +1,15 @@
+{
+  "_comment": "Plugin-declared hooks. The SessionStart hook auto-reconciles the user's config on every Claude Code session start. Failures are non-blocking — logs to $TMPDIR/harmony.log.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

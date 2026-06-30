@@ -1,0 +1,21 @@
+{
+  "name": "harmony",
+  "version": "0.1.0-dev",
+  "description": "Declarative config for Claude Code. One manifest, full lifecycle (install + uninstall), per-Mac reconciliation.",
+  "author": {
+    "name": "Frank Mogensen",
+    "url": "https://github.com/fmogensen"
+  },
+  "homepage": "https://github.com/fmogensen/harmony",
+  "repository": "https://github.com/fmogensen/harmony",
+  "license": "MIT",
+  "keywords": [
+    "config",
+    "declarative",
+    "sync",
+    "settings",
+    "plugins",
+    "dotfiles",
+    "macos"
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/fmogensen/harmony/schema/manifest.schema.json",
+  "title": "harmony manifest",
+  "description": "Declarative manifest for a Claude Code config, applied by the harmony plugin.",
+  "type": "object",
+  "properties": {
+    "_schema_version": { "type": "integer", "const": 1 },
+    "_comment": { "type": "string" },
+
+    "marketplaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "source"],
+        "properties": {
+          "name": { "type": "string" },
+          "source": {
+            "description": "Marketplace source: owner/repo (GitHub), URL, or local path",
+            "type": "string"
+          }
+        }
+      }
+    },
+
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "description": "Fully qualified plugin id: name@marketplace",
+            "type": "string",
+            "pattern": "^[^@]+@[^@]+$"
+          },
+          "enabled": { "type": "boolean", "default": true }
+        }
+      }
+    },
+
+    "content": {
+      "type": "object",
+      "properties": {
+        "skills":         { "type": ["string", "null"] },
+        "agents":         { "type": ["string", "null"] },
+        "commands":       { "type": ["string", "null"] },
+        "globalClaudeMd": { "type": ["string", "null"] }
+      }
+    },
+
+    "settings": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "description": "Keys to write verbatim into ~/.claude/settings.json. Null value = delete the key.",
+          "type": "object"
+        },
+        "derived": {
+          "description": "Settings keys that harmony computes from other manifest sections.",
+          "type": "array",
+          "items": {
+            "enum": ["hooks", "enabledPlugins", "extraKnownMarketplaces"]
+          }
+        }
+      }
+    },
+
+    "hooks": {
+      "type": "object",
+      "patternProperties": {
+        "^(SessionStart|UserPromptSubmit|Stop|StopFailure|SessionEnd|PreToolUse|PostToolUse|PermissionRequest|PreCompact)$": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["command"],
+            "properties": {
+              "command": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "keybindings": { "type": ["object", "null"] },
+
+    "mcpServers": {
+      "type": "object",
+      "properties": {
+        "_scope": { "enum": ["global"], "default": "global" },
+        "servers": { "type": "object" }
+      }
+    },
+
+    "brew": {
+      "type": "object",
+      "properties": {
+        "brewfile":           { "type": "string" },
+        "auto_install_tier":  { "enum": ["safe", "ask", "none"], "default": "safe" },
+        "tiers": {
+          "type": "object",
+          "properties": {
+            "safe": { "type": "array", "items": { "type": "string" } },
+            "ask":  { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+
+    "launchd": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "plist"],
+        "properties": {
+          "label":  { "type": "string", "description": "Must match the user's HARMONY_LABEL_PREFIX." },
+          "plist":  { "type": "string", "description": "Path to plist template, relative to HARMONY_CONFIG_DIR." },
+          "runner": { "type": "string", "description": "Optional runner script template." },
+          "vars":   { "type": "object" }
+        }
+      }
+    }
+  }
+}
