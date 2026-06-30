@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **v2.1 sync hardening**:
+  - `harmony_sync_state` state machine classifies the config repo as
+    in-sync / behind / ahead / diverged / dirty / no-upstream / offline / detached
+    — distinguishing offline (can't reach remote) from a real divergence, and
+    handling first-run no-upstream.
+  - `verify` gains a `sync` row and `status` reports sync state (visible health,
+    not just silent side-effects).
+  - State-aware pull messages: only `behind` fast-forwards; `ahead` in pull-mode
+    warns that local commits aren't pushed; `diverged`/`offline`/`dirty` each get
+    a distinct, actionable message.
+  - `sync.autoCommit` (pull-push): auto-commit uncommitted config edits before
+    pushing, with a hostname-stamped message.
+  - `is_dirty` now also counts untracked files (via `git status --porcelain`).
+  - Test: `test/test-sync-hardening.sh` (state classification incl.
+    behind/ahead/diverged/dirty, autoCommit→push, verify sync row). Suite 7/7.
 - **v2 multi-Mac git-sync layer** (`lib/sync.sh`): optional `sync` block in the
   manifest. `apply` runs `git pull --ff-only` on the config repo before reconciling
   (warns and skips on divergence / uncommitted changes — never blocks a session),
