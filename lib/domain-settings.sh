@@ -44,6 +44,14 @@ _settings_compute_desired() {
             | gsub("\\$\\{CLAUDE_PLUGIN_ROOT\\}"; $plugin_root)
             | gsub("\\$\\{HOME\\}"; $home);
 
+        # Recursively expand ${VAR} placeholders in every string leaf of a
+        # JSON value. Numbers/bools/null pass through unchanged. Used on
+        # whatever the user puts in `values` so they can reference
+        # ${HARMONY_CONFIG_DIR} et al. in any setting (statusLine command,
+        # etc.) without hardcoding per-Mac paths.
+        def deep_expand:
+            walk(if type == "string" then expand_vars else . end);
+
         # Convert manifest hook entries -> Claude Code nested shape.
         # Manifest: { "SessionStart": [ { "command": "..." } ] }
         # Output:   { "SessionStart": [ { "hooks": [ { "type": "command", "command": "..." } ] } ] }
@@ -112,8 +120,10 @@ _settings_compute_desired() {
         | reduce $derived_keys[] as $k (.; del(.[$k]))
         # Apply values: for each key in values, either set it (non-null)
         # or delete it from settings.json (null = explicit removal).
+        # String leaves go through deep_expand so ${HARMONY_CONFIG_DIR} etc.
+        # resolve to actual paths on this Mac.
         | reduce ($values | to_entries)[] as $kv (.;
-              if $kv.value == null then del(.[$kv.key]) else .[$kv.key] = $kv.value end
+              if $kv.value == null then del(.[$kv.key]) else .[$kv.key] = ($kv.value | deep_expand) end
           )
         # Write back the derived values (only if computable + listed in derived).
         | (if (($derived_keys | index("hooks")) != null and $derived_hooks != null)
