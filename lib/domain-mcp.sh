@@ -144,3 +144,44 @@ harmony_domain_mcp_verify() {
     current="$(_mcp_current_json)"
     [[ "$desired" == "$current" ]]
 }
+
+# Reverse reconcile: report MCP servers present on the machine but absent from
+# the manifest, so `harmony capture` can ADD them. CRITICAL: a server whose
+# config contains a secret-looking env value is NOT captured — writing it into
+# the manifest would commit a secret to git and sync it to other Macs. Such
+# servers are reported on the SKIP channel instead, so the caller can nudge the
+# user to add them by hand.
+#
+# Args:    <manifest>
+# Stdout:  one line per capturable server: "<key>\t<config-json>"
+#          one line per skipped (secret) server: "SKIP\t<key>\t<reason>"
+harmony_domain_mcp_capture() {
+    local manifest="$1"
+    local desired current
+    desired="$(jq -c '.mcpServers.servers // {}' "$manifest")"
+    current="$(_mcp_current_json)"
+
+    [[ "$desired" == "$current" ]] && return 0
+
+    local key d c
+    while IFS= read -r key; do
+        [[ -z "$key" ]] && continue
+        d="$(printf "%s" "$desired" | jq -c --arg k "$key" '.[$k] // null')"
+        c="$(printf "%s" "$current" | jq -c --arg k "$key" '.[$k] // null')"
+        # Only capture servers present on the machine but missing from manifest.
+        [[ "$d" == "null" && "$c" != "null" ]] || continue
+
+        # Secret guard: refuse to capture a server with secret-looking env values.
+        local has_secret=0 v
+        while IFS= read -r v; do
+            [[ -z "$v" ]] && continue
+            if _mcp_looks_like_secret "$v"; then has_secret=1; break; fi
+        done < <(printf "%s" "$c" | jq -r '.env // {} | to_entries[] | .value')
+
+        if [[ "$has_secret" == "1" ]]; then
+            printf "SKIP\t%s\tcontains a secret-looking env value; add it to the manifest by hand\n" "$key"
+        else
+            printf "%s\t%s\n" "$key" "$c"
+        fi
+    done < <(printf "%s\n%s\n" "$desired" "$current" | jq -r 'keys | .[]' | sort -u)
+}

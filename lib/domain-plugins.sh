@@ -286,3 +286,35 @@ harmony_domain_plugins_verify() {
     actionable="$(printf "%s\n" "$diff" | grep -v '^noop' || true)"
     [[ -z "$actionable" ]]
 }
+
+# Reverse reconcile: report plugin ids that are installed but absent from the
+# manifest (i.e. what `plan` would uninstall) so `harmony capture` can ADD them
+# instead of removing them. Pure-ish — relies on the same live plan path.
+#
+# Args:    <manifest>
+# Stdout:  one plugin id per line (e.g. "playwright@claude-plugins-official").
+#          Protected plugins (NEVER_UNINSTALL) are excluded — they're already
+#          preserved, not captured.
+harmony_domain_plugins_capture() {
+    local manifest="$1"
+
+    if ! harmony_have_cmd "$HARMONY_CLAUDE_CMD"; then
+        harmony_warn "claude CLI not found; skipping plugins capture"
+        return 0
+    fi
+
+    local plan
+    plan="$(_plugins_diff_live "$manifest")"
+    [[ -z "$plan" ]] && return 0
+
+    # An `uninstall plugin.<id>` line == installed-but-not-in-manifest. That is
+    # exactly the session-installed plugin we want to capture. (Protected ones
+    # surface as `noop`, so they're naturally skipped by the grep.)
+    local action resource details
+    while IFS=$'\t' read -r action resource details; do
+        [[ "$action" == "uninstall" ]] || continue
+        case "$resource" in
+            plugin.*) printf "%s\n" "${resource#plugin.}" ;;
+        esac
+    done <<< "$plan"
+}

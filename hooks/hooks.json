@@ -1,5 +1,5 @@
 {
-  "_comment": "Plugin-declared hooks. The SessionStart hook auto-reconciles the user's config on every Claude Code session start. Failures are non-blocking — logs to $TMPDIR/harmony.log.",
+  "_comment": "Plugin-declared hooks. SessionStart auto-reconciles the user's config on every Claude Code session start. Stop nudges (read-only) when plugins/MCP servers were installed this session but aren't in the manifest. Both are non-blocking and fail-open — logs to $TMPDIR/harmony.log.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,6 +7,16 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-stop.sh"
           }
         ]
       }

@@ -206,10 +206,26 @@ Full schema: [`schema/manifest.schema.json`](schema/manifest.schema.json). More 
 | `harmony apply --dry-run`| Show what would change without doing it                    |
 | `harmony status`         | Drift summary (read-only)                                  |
 | `harmony verify`         | 7-domain smoke test; exit 0 green, 1 red                   |
+| `harmony capture`        | Add plugins/MCP installed here but missing from manifest   |
+| `harmony capture --dry-run`| Show what would be captured without writing               |
 | `harmony init`           | Create `~/code/harmony-config/` from a starter template    |
 | `harmony help`           | Show help                                                  |
 
 Slash commands inside Claude Code: `/harmony-apply`, `/harmony-status`, `/harmony-verify`.
+
+### `harmony capture` — reverse reconcile
+
+`apply` flows manifest → machine. `capture` is the inverse: it adds config you
+installed on *this* machine but never wrote into the manifest — the plugins and
+MCP servers that would otherwise be pruned next session start (and never reach
+your other Macs). It appends them to the manifest, commits, and pushes if your
+sync mode is `pull-push`.
+
+A **Stop hook** nudges you automatically: when a session ends with undeclared
+plugins/MCP servers installed, harmony prints a one-line reminder to run
+`harmony capture` (it never captures automatically — you decide). Secret-bearing
+MCP servers are never auto-captured; harmony tells you to add those by hand so a
+secret is never committed to git.
 
 ## Roadmap
 

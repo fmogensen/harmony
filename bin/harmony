@@ -67,6 +67,10 @@ Usage:
   harmony diff            Detailed JSON diff (manifest vs reality).
   harmony sync [--push]   Git-sync the config repo now (pull ff-only; push if
                           mode=pull-push, or --push to force the push once).
+  harmony capture [--dry-run]
+                          Add plugins/MCP servers installed on this machine but
+                          missing from the manifest (the inverse of apply's
+                          prune), then commit (and push if mode=pull-push).
   harmony init [--force]  Create your config directory from a starter template.
   harmony help            Show this message.
   harmony version         Print the harmony version.
@@ -280,6 +284,124 @@ cmd_sync() {
     return 0
 }
 
+cmd_capture() {
+    # Reverse reconcile: add config installed on THIS machine but missing from
+    # the manifest (the inverse of apply's prune). v1 scope: plugins + MCP
+    # servers — the things you install in a session that would otherwise be
+    # pruned next start or never sync to other Macs.
+    #
+    #   harmony capture            write manifest, commit, push if mode=pull-push
+    #   harmony capture --dry-run  print what would be added; write nothing
+    local dry=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run) dry=1; shift ;;
+            *) harmony_error "unknown flag for capture: $1"; exit 1 ;;
+        esac
+    done
+
+    harmony_require_cmd jq "brew install jq"
+    if ! harmony_config_exists; then
+        harmony_die "no manifest at $(harmony_manifest_path)"
+    fi
+    local manifest
+    manifest="$(harmony_manifest_path)"
+    harmony_jq_validate "$manifest" "manifest"
+    harmony_source_domains
+
+    # --- Gather capturable items from the domains ---
+    local plugin_ids mcp_lines
+    plugin_ids="$(harmony_domain_plugins_capture "$manifest" 2>/dev/null || true)"
+
+    local mcp_capturable="" mcp_skipped=""
+    if declare -F harmony_domain_mcp_capture >/dev/null 2>&1; then
+        local _line
+        while IFS= read -r _line; do
+            [[ -z "$_line" ]] && continue
+            if [[ "$_line" == SKIP$'\t'* ]]; then
+                mcp_skipped+="${_line#SKIP$'\t'}"$'\n'
+            else
+                mcp_capturable+="$_line"$'\n'
+            fi
+        done < <(harmony_domain_mcp_capture "$manifest" 2>/dev/null || true)
+    fi
+
+    # Nothing to do?
+    local p_count m_count
+    p_count="$(printf "%s" "$plugin_ids" | grep -c . || true)"
+    m_count="$(printf "%s" "$mcp_capturable" | grep -c . || true)"
+    if [[ "$p_count" -eq 0 && "$m_count" -eq 0 ]]; then
+        harmony_info "nothing to capture — manifest already matches installed plugins/MCP servers"
+        [[ -n "$mcp_skipped" ]] && printf "%s" "$mcp_skipped" | while IFS=$'\t' read -r k reason; do
+            harmony_warn "mcp.${k} not captured: ${reason}"
+        done
+        return 0
+    fi
+
+    # --- Report ---
+    local id
+    while IFS= read -r id; do
+        [[ -z "$id" ]] && continue
+        harmony_info "[capture] plugin ${id} → manifest.plugins[]"
+    done <<< "$plugin_ids"
+    printf "%s" "$mcp_capturable" | while IFS=$'\t' read -r k _cfg; do
+        [[ -z "$k" ]] && continue
+        harmony_info "[capture] mcp ${k} → manifest.mcpServers.servers"
+    done
+    [[ -n "$mcp_skipped" ]] && printf "%s" "$mcp_skipped" | while IFS=$'\t' read -r k reason; do
+        harmony_warn "[capture] mcp ${k} SKIPPED: ${reason}"
+    done
+
+    if [[ "$dry" == "1" ]]; then
+        harmony_info "(dry-run — manifest not modified)"
+        return 0
+    fi
+
+    # --- Write the manifest (atomic, backed up) ---
+    local updated
+    updated="$(cat "$manifest")"
+
+    # Plugins: append { id, enabled:true } for each, deduped.
+    while IFS= read -r id; do
+        [[ -z "$id" ]] && continue
+        updated="$(printf "%s" "$updated" | jq --arg i "$id" '
+            .plugins = (.plugins // [])
+            | if any(.plugins[]; .id == $i) then .
+              else .plugins += [ { "id": $i, "enabled": true } ] end')"
+    done <<< "$plugin_ids"
+
+    # MCP servers: set servers[key] = captured config. Use process substitution
+    # (not a pipe) so the loop runs in THIS shell and can mutate $updated.
+    local k cfg
+    while IFS=$'\t' read -r k cfg; do
+        [[ -z "$k" ]] && continue
+        updated="$(printf "%s" "$updated" | jq --arg k "$k" --argjson c "$cfg" '
+            .mcpServers = (.mcpServers // {})
+            | .mcpServers.servers = (.mcpServers.servers // {})
+            | .mcpServers.servers[$k] = $c')"
+    done < <(printf "%s" "$mcp_capturable")
+
+    printf "%s" "$updated" | harmony_jq_write_atomic "$manifest"
+    harmony_info "captured $((p_count + m_count)) item(s) into $manifest"
+
+    # --- Commit + push (reuse sync machinery for the push leg) ---
+    if harmony_have_cmd git && git -C "$HARMONY_CONFIG_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local summary
+        summary="$(printf "%s" "$plugin_ids" | tr '\n' ' ')"
+        git -C "$HARMONY_CONFIG_DIR" add -A 2>/dev/null || true
+        if git -C "$HARMONY_CONFIG_DIR" commit -q -m "harmony capture: ${summary}${mcp_capturable:+mcp servers}" 2>/dev/null; then
+            harmony_info "committed capture to $HARMONY_CONFIG_DIR"
+            harmony_sync_load "$manifest"
+            harmony_sync_push
+        else
+            harmony_warn "nothing committed (no git changes?)"
+        fi
+    else
+        harmony_warn "$HARMONY_CONFIG_DIR is not a git repo — manifest written but not committed"
+    fi
+    return 0
+}
+
 cmd_init() {
     local force=0
     while [[ $# -gt 0 ]]; do
@@ -332,6 +454,7 @@ case "$verb" in
     verify)        cmd_verify "$@" ;;
     diff)          cmd_diff "$@" ;;
     sync)          cmd_sync "$@" ;;
+    capture)       cmd_capture "$@" ;;
     init)          cmd_init "$@" ;;
     help|--help|-h) cmd_help ;;
     version|--version|-v) cmd_version ;;

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`harmony capture` — reverse reconcile.** Adds plugins/MCP servers installed
+  on this machine but missing from the manifest (the inverse of `apply`'s prune),
+  then commits and pushes if sync mode is `pull-push`. `--dry-run` reports without
+  writing. The protected `harmony` plugin is never captured; MCP servers with
+  secret-looking env values are skipped (never committed to git) and reported for
+  manual handling.
+- **Stop hook (`hooks/session-stop.sh`).** On session end, runs `harmony status`
+  (read-only) and, if plugins/MCP servers were installed this session but aren't
+  in the manifest, prints a non-blocking nudge to run `harmony capture` (so the
+  config syncs to other Macs instead of being pruned next start). Fail-open,
+  honors `stop_hook_active`, never auto-captures. Known v1 gap: hand-authored
+  skills/agents dropped outside a plugin and outside `content/` are not detected.
 - **v2.1 sync hardening**:
   - `harmony_sync_state` state machine classifies the config repo as
     in-sync / behind / ahead / diverged / dirty / no-upstream / offline / detached
