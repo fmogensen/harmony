@@ -162,7 +162,7 @@ cmd_apply() {
         if [[ "$HARMONY_VERBOSE" == "1" ]] || [[ "$HARMONY_QUIET" != "1" && "$d_count" -gt 0 ]]; then
             printf "%s\n" "$plan_lines" | grep -v '^noop' | while IFS=$'\t' read -r action resource details; do
                 harmony_info "[${domain}] ${action} ${resource}${details:+ — ${details}}"
-            done
+            done || true
         fi
 
         if [[ "$HARMONY_DRY_RUN" != "1" ]]; then
