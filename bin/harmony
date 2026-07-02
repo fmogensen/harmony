@@ -204,9 +204,14 @@ cmd_verify() {
         return 1
     fi
 
-    local manifest
-    manifest="$(harmony_manifest_path)"
-    harmony_jq_validate "$manifest" "manifest"
+    local base_manifest manifest
+    base_manifest="$(harmony_manifest_path)"
+    harmony_jq_validate "$base_manifest" "manifest"
+
+    # Layer this host's overrides over the base — same as apply/status — so
+    # verify doesn't report phantom drift on hosts that use overrides/<host>.json.
+    manifest="$(harmony_effective_manifest "$base_manifest")"
+    harmony_on_exit 'harmony_overrides_cleanup'
 
     harmony_source_domains
 

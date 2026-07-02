@@ -55,14 +55,23 @@ _settings_compute_desired() {
         # Convert manifest hook entries -> Claude Code nested shape.
         # Manifest: { "SessionStart": [ { "command": "..." } ] }
         # Output:   { "SessionStart": [ { "hooks": [ { "type": "command", "command": "..." } ] } ] }
+        # Optional per-entry fields "matcher" (entry-level) and "timeout"
+        # (hook-level) are carried through when present, so hooks written by
+        # external tools (the cux matcher/timeout entries) round-trip
+        # faithfully instead of being stripped on apply. Entries without them
+        # emit the same bare shape as before.
         def to_cc_hooks(h):
             h
             | to_entries
             | map({
                 key: .key,
-                value: ( .value | map({
-                    hooks: [ { type: "command", command: (.command | expand_vars) } ]
-                }) )
+                value: ( .value | map(
+                    (if has("matcher") then { matcher: .matcher } else {} end)
+                    + { hooks: [
+                        ( { type: "command", command: (.command | expand_vars) }
+                          + (if has("timeout") then { timeout: .timeout } else {} end) )
+                      ] }
+                ) )
               })
             | from_entries;
 
@@ -166,11 +175,16 @@ _settings_compute_diff() {
         | unique | .[]
     ' "$manifest")"
 
+    # Compare with -S (sort object keys) so a pure key-reorder is NOT seen as
+    # drift — object key order is not semantically meaningful, but array order
+    # is preserved by -S (hook execution order still matters). Without this,
+    # tools that write settings.json keys in their own order (e.g. cux) would
+    # register perpetual phantom drift even when values are identical.
     local key cur_val des_val managed
     while IFS= read -r key; do
         [[ -z "$key" ]] && continue
-        cur_val="$(printf "%s" "$current" | jq -c --arg k "$key" '.[$k] // null')"
-        des_val="$(printf "%s" "$desired" | jq -c --arg k "$key" '.[$k] // null')"
+        cur_val="$(printf "%s" "$current" | jq -cS --arg k "$key" '.[$k] // null')"
+        des_val="$(printf "%s" "$desired" | jq -cS --arg k "$key" '.[$k] // null')"
         managed=0
         if printf "%s\n" "$managed_keys" | grep -qx "$key"; then
             managed=1
